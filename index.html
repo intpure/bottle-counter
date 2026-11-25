@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>瓶子點數助手</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2430;--mute:#6b7685;--line:#e3e7ec;--accent:#1f7a4d;--accent-ink:#fff;--danger:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#14181d;--card:#1d232a;--ink:#e8edf2;--mute:#9aa6b4;--line:#2d3640;--accent:#3fb37a;--accent-ink:#0b1510;--danger:#e36b5c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+header h1{font-size:17px;margin:0}
+.total{font-size:14px;color:var(--mute);white-space:nowrap}
+.total b{font-size:28px;color:var(--ink);font-variant-numeric:tabular-nums;margin:0 2px}
+main{max-width:720px;margin:0 auto;padding:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 14px;border-radius:10px;cursor:pointer;touch-action:manipulation}
+button.primary,.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button.danger{color:var(--danger)}
+button:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.sp{justify-content:space-between}
+.btn{display:inline-block;text-align:center}
+.btn.big{display:block;width:100%;padding:16px;font-size:18px}
+input[type=file]{display:none}
+.stage{position:relative;overflow:auto;max-height:68vh;border-radius:10px;background:#0e1114;border:1px solid var(--line);-webkit-overflow-scrolling:touch}
+.stage canvas{display:block;touch-action:pan-x pan-y}
+.empty{padding:36px 16px;text-align:center;color:var(--mute)}
+.count{font-size:15px;color:var(--mute)}
+.count b{font-size:34px;color:var(--ink);font-variant-numeric:tabular-nums;margin:0 4px}
+.lg{font-size:13px;color:var(--mute)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 8px;vertical-align:baseline}
+label.sl{display:block;font-size:14px;color:var(--mute);margin-top:8px}
+label.sl span{color:var(--ink);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=number]{font:inherit;width:72px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+ul.list{list-style:none;margin:0;padding:0}
+ul.list li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+ul.list li:last-child{border-bottom:0}
+ul.list .eq{color:var(--mute);font-size:14px}
+textarea{width:100%;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--card);color:var(--ink);resize:vertical}
+.hint{font-size:13px;color:var(--mute);margin:6px 0 0}
+h2{font-size:15px;margin:0 0 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>瓶子點數助手</h1>
+  <div class="total">總計<b id="total">0</b>個</div>
+</header>
+<main>
+  <div class="card">
+    <label class="btn primary big" for="file" id="pick">📷 拍照 / 選擇照片</label>
+    <input type="file" id="file" accept="image/*" capture="environment">
+    <p class="hint">拍俯視照，讓瓶口都在畫面內。每一層（或每一疊）拍一張。</p>
+  </div>
+
+  <div class="card" id="work" hidden>
+    <div class="row sp">
+      <div class="count">這張<b id="n">0</b>個</div>
+      <div class="row">
+        <button id="undo" disabled>↩ 復原</button>
+        <button id="zoom">🔍 1×</button>
+      </div>
+    </div>
+    <div class="lg"><span class="dot" style="background:#2ecc71;margin-left:0"></span>自動偵測<span class="dot" style="background:#ff9f1a"></span>手動新增　· 點空白處＝新增，點已有的圈＝刪除</div>
+    <div class="stage" id="stage" style="margin-top:8px"><canvas id="cv"></canvas></div>
+
+    <label class="sl">瓶口大小 <span id="rv"></span>（圈的大小和瓶口差不多）
+      <input type="range" id="rad" min="2" max="12" step="0.2" value="4.8">
+    </label>
+    <label class="sl">靈敏度 <span id="sv"></span>（漏很多就調高，亂標很多就調低）
+      <input type="range" id="sens" min="1" max="10" step="1" value="9">
+    </label>
+    <div class="row" style="margin-top:10px">
+      <button id="redo">重新自動偵測</button>
+      <button id="clear" class="danger">清除標記</button>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <label>這張代表層數 ×</label>
+      <input type="number" id="mult" min="1" value="1" inputmode="numeric">
+    </div>
+    <p class="hint">一層一張就填 1；如果這張是「每疊看到的頂端」且每疊有 5 層，就填 5。</p>
+    <button id="add" class="primary big" style="margin-top:10px">✔ 這張完成，加入總計</button>
+  </div>
+
+  <div class="card">
+    <div class="row sp"><h2 style="margin:0">已加入的記錄</h2><button id="reset" class="danger">全部清空</button></div>
+    <ul class="list" id="list"></ul>
+    <p class="hint" id="noentry">還沒有記錄。</p>
+  </div>
+
+  <div class="card">
+    <h2>結果文字</h2>
+    <textarea id="summary" rows="5" readonly></textarea>
+    <div class="row" style="margin-top:8px"><button id="copy">複製</button><span class="hint" id="copymsg"></span></div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const W_MAX = 800;
+const work = document.createElement('canvas');
+const wctx = work.getContext('2d', {willReadFrequently:true});
+const cv = $('cv'), ctx = cv.getContext('2d');
+let hasImg = false, markers = [], undoStack = [];
+const ZOOMS = [1, 1.5, 2, 3]; let zi = 0;
+let entries = [];
+try { entries = JSON.parse(localStorage.getItem('bottle_entries') || '[]'); } catch (e) { entries = []; }
+function saveEntries(){ try { localStorage.setItem('bottle_entries', JSON.stringify(entries)); } catch (e) {} }
+
+const radiusPx = () => parseFloat($('rad').value) / 100 * work.width;
+
+/* ---------- 載入照片 ---------- */
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const url = URL.createObjectURL(f), im = new Image();
+  im.onload = () => {
+    const s = Math.min(1, W_MAX / Math.max(im.naturalWidth, im.naturalHeight));
+    work.width = Math.round(im.naturalWidth * s); work.height = Math.round(im.naturalHeight * s);
+    wctx.drawImage(im, 0, 0, work.width, work.height);
+    URL.revokeObjectURL(url);
+    hasImg = true; markers = []; undoStack = []; $('mult').value = 1;
+    $('work').hidden = false; layout(); detect(); $('work').scrollIntoView({behavior:'smooth', block:'start'});
+  };
+  im.onerror = () => { alert_('無法讀取這張照片'); };
+  im.src = url; e.target.value = '';
+});
+function alert_(m){ $('copymsg').textContent = m; }
+
+/* ---------- 版面與繪製 ---------- */
+function layout(){
+  cv.width = work.width; cv.height = work.height;
+  cv.style.width = ($('stage').clientWidth * ZOOMS[zi]) + 'px';
+  cv.style.height = 'auto';
+  draw();
+}
+function draw(){
+  ctx.drawImage(work, 0, 0);
+  const r = radiusPx(), lw = Math.max(2, r * 0.09);
+  for (const m of markers){
+    ctx.lineWidth = lw; ctx.strokeStyle = m.auto ? '#2ecc71' : '#ff9f1a';
+    ctx.beginPath(); ctx.arc(m.x, m.y, r * 0.92, 0, 6.2832); ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(m.x, m.y, Math.max(2.5, r * 0.1), 0, 6.2832); ctx.fill();
+  }
+  updateCount();
+}
+function updateCount(){
+  $('n').textContent = markers.length;
+  $('undo').disabled = undoStack.length === 0;
+  $('rv').textContent = parseFloat($('rad').value).toFixed(1) + '%';
+  $('sv').textContent = $('sens').value;
+}
+
+/* ---------- 點選新增 / 刪除 ---------- */
+cv.addEventListener('click', e => {
+  if (!hasImg) return;
+  const rc = cv.getBoundingClientRect();
+  const x = (e.clientX - rc.left) * cv.width / rc.width, y = (e.clientY - rc.top) * cv.height / rc.height;
+  const r = radiusPx(); let k = -1, best = 1e9;
+  markers.forEach((m, i) => { const d = Math.hypot(m.x - x, m.y - y); if (d < best){ best = d; k = i; } });
+  pushUndo();
+  if (k >= 0 && best < r * 0.9) markers.splice(k, 1); else markers.push({x, y, auto:false});
+  draw();
+});
+function pushUndo(){ undoStack.push(markers.map(m => ({...m}))); if (undoStack.length > 50) undoStack.shift(); }
+$('undo').onclick = () => { if (undoStack.length){ markers = undoStack.pop(); draw(); } };
+$('clear').onclick = () => { pushUndo(); markers = []; draw(); };
+$('zoom').onclick = () => { zi = (zi + 1) % ZOOMS.length; $('zoom').textContent = '🔍 ' + ZOOMS[zi] + '×'; layout(); };
+$('redo').onclick = () => { pushUndo(); detect(true); };
+let tm; const redetectSoon = () => { clearTimeout(tm); tm = setTimeout(() => { if (hasImg){ markers = markers.filter(m => !m.auto); detect(); } }, 350); };
+$('rad').oninput = () => { draw(); redetectSoon(); };
+$('sens').oninput = () => { updateCount(); redetectSoon(); };
+window.addEventListener('resize', () => { if (hasImg) layout(); });
+
+/* ---------- 自動偵測（梯度投票的圓形偵測） ---------- */
+function boxBlur(src, w, h, rad){
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h), n = 2 * rad + 1;
+  for (let y = 0; y < h; y++){
+    let s = 0; const o = y * w;
+    for (let x = -rad; x <= rad; x++) s += src[o + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){
+      tmp[o + x] = s / n;
+      s += src[o + Math.min(w - 1, x + rad + 1)] - src[o + Math.max(0, x - rad)];
+    }
+  }
+  for (let x = 0; x < w; x++){
+    let s = 0;
+    for (let y = -rad; y <= rad; y++) s += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++){
+      out[y * w + x] = s / n;
+      s += tmp[Math.min(h - 1, y + rad + 1) * w + x] - tmp[Math.max(0, y - rad) * w + x];
+    }
+  }
+  return out;
+}
+
+function detect(keepManual){
+  if (!hasImg) return;
+  const w = work.width, h = work.height, px = wctx.getImageData(0, 0, w, h).data;
+  const N = w * h; let g = new Float32Array(N);
+  for (let i = 0, j = 0; i < N; i++, j += 4) g[i] = 0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2];
+  g = boxBlur(g, w, h, 2);
+  const gx = new Float32Array(N), gy = new Float32Array(N), mag = new Float32Array(N);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++){
+    const i = y * w + x;
+    const a = g[i - w - 1], b = g[i - w], c = g[i - w + 1], d = g[i - 1], f = g[i + 1], p = g[i + w - 1], q = g[i + w], s = g[i + w + 1];
+    const dx = (c + 2 * f + s) - (a + 2 * d + p), dy = (p + 2 * q + s) - (a + 2 * b + c);
+    gx[i] = dx; gy[i] = dy; mag[i] = Math.hypot(dx, dy);
+  }
+  const sens = parseFloat($('sens').value);
+  const r0 = radiusPx(), rmin = Math.max(4, Math.round(r0 * 0.8)), rmax = Math.round(r0 * 1.2);
+  // 區域自適應邊緣：每個邊緣只要比「附近平均」明顯就算，不受全域對比影響
+  const lm = boxBlur(mag, w, h, Math.max(4, Math.round(r0 * 1.2)));
+  const kk = 1.75 - 0.12 * sens;
+  let acc = new Float32Array(N);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++){
+    const i = y * w + x, m = mag[i];
+    if (m < 6 || m < kk * lm[i]) continue;
+    const ux = gx[i] / m, uy = gy[i] / m;
+    for (let r = rmin; r <= rmax; r++){
+      let X = Math.round(x + ux * r), Y = Math.round(y + uy * r);
+      if (X >= 0 && X < w && Y >= 0 && Y < h) acc[Y * w + X] += 1;
+      X = Math.round(x - ux * r); Y = Math.round(y - uy * r);
+      if (X >= 0 && X < w && Y >= 0 && Y < h) acc[Y * w + X] += 1;
+    }
+  }
+  acc = boxBlur(acc, w, h, 2);
+  // 局部極大值
+  const cand = [], R = 4;
+  for (let y = R; y < h - R; y += 1) for (let x = R; x < w - R; x += 1){
+    const v = acc[y * w + x]; if (v <= 0) continue;
+    let ok = true;
+    for (let dy = -R; dy <= R && ok; dy += 2) for (let dx = -R; dx <= R; dx += 2) if (acc[(y + dy) * w + x + dx] > v){ ok = false; break; }
+    if (ok) cand.push([x, y, v]);
+  }
+  cand.sort((a, b) => b[2] - a[2]);
+  if (!cand.length){ draw(); return; }
+  const ref = cand[Math.min(cand.length - 1, 40)][2];
+  const rel = 0.95 - 0.07 * sens, minV = ref * rel, minD = r0 * 1.55;
+  const found = [];
+  for (const [x, y, v] of cand){
+    if (v < minV) break;
+    if (found.some(f => Math.hypot(f.x - x, f.y - y) < minD)) continue;
+    // 顏色檢查：白色塑膠（低飽和、偏亮），排除紙箱與背景
+    let sS = 0, sV = 0, cnt = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++){
+      const X = Math.round(x + dx * r0 * 0.18), Y = Math.round(y + dy * r0 * 0.18);
+      if (X < 0 || X >= w || Y < 0 || Y >= h) continue;
+      const j = (Y * w + X) * 4, mx = Math.max(px[j], px[j + 1], px[j + 2]), mn = Math.min(px[j], px[j + 1], px[j + 2]);
+      sS += mx ? (mx - mn) / mx : 0; sV += mx / 255; cnt++;
+    }
+    if (cnt && (sS / cnt > 0.26 || sV / cnt < 0.45)) continue;
+    found.push({x, y, auto:true});
+  }
+  const manual = markers.filter(m => !m.auto);
+  markers = found.filter(f => !manual.some(m => Math.hypot(m.x - f.x, m.y - f.y) < r0 * 0.9)).concat(manual);
+  draw();
+}
+
+/* ---------- 記錄與總計 ---------- */
+$('add').onclick = () => {
+  if (!hasImg) return;
+  const mult = Math.max(1, parseInt($('mult').value, 10) || 1);
+  entries.push({n: markers.length, mult}); saveEntries();
+  hasImg = false; markers = []; undoStack = []; $('work').hidden = true; renderEntries();
+  window.scrollTo({top: 0, behavior: 'smooth'});
+};
+let resetArmed = false;
+$('reset').onclick = () => {
+  if (!resetArmed){ resetArmed = true; $('reset').textContent = '再按一次確認'; setTimeout(() => { resetArmed = false; $('reset').textContent = '全部清空'; }, 3000); return; }
+  entries = []; saveEntries(); resetArmed = false; $('reset').textContent = '全部清空'; renderEntries();
+};
+function renderEntries(){
+  const ul = $('list'); ul.innerHTML = ''; let total = 0;
+  entries.forEach((en, i) => {
+    const sub = en.n * en.mult; total += sub;
+    const li = document.createElement('li');
+    li.innerHTML = '<span>第 ' + (i + 1) + ' 張　<span class="eq">' + en.n + ' × ' + en.mult + ' = </span><b>' + sub + '</b></span>';
+    const b = document.createElement('button'); b.textContent = '刪除'; b.className = 'danger';
+    b.onclick = () => { entries.splice(i, 1); saveEntries(); renderEntries(); };
+    li.appendChild(b); ul.appendChild(li);
+  });
+  $('noentry').style.display = entries.length ? 'none' : '';
+  $('total').textContent = total;
+  $('summary').value = entries.length
+    ? entries.map((en, i) => '第' + (i + 1) + '張：' + en.n + ' × ' + en.mult + ' = ' + en.n * en.mult).join('\n') + '\n總計：' + total + ' 個'
+    : '';
+}
+$('copy').onclick = async () => {
+  const t = $('summary').value; if (!t) return;
+  try { await navigator.clipboard.writeText(t); $('copymsg').textContent = '已複製'; }
+  catch (e) { $('summary').focus(); $('summary').select(); $('copymsg').textContent = '請長按已選取的文字複製'; }
+};
+renderEntries(); updateCount();
+</script>
+</body>
+</html>
