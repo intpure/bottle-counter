@@ -42,6 +42,12 @@ ul.list .eq{color:var(--mute);font-size:14px}
 textarea{width:100%;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--card);color:var(--ink);resize:vertical}
 .hint{font-size:13px;color:var(--mute);margin:6px 0 0}
 h2{font-size:15px;margin:0 0 8px}
+input[type=text]{font:inherit;flex:1;min-width:0;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+.fld{display:flex;align-items:center;gap:8px;margin-top:8px}
+.fld>span{width:5.5em;flex:none;font-size:14px;color:var(--mute)}
+.chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-weight:600}
+.chk input{width:22px;height:22px;accent-color:var(--accent)}
+.msg-ok{color:var(--accent);font-weight:600}.msg-err{color:var(--danger);font-weight:600}
 </style>
 </head>
 <body>
@@ -92,6 +98,16 @@ h2{font-size:15px;margin:0 0 8px}
     <p class="hint" id="noentry">還沒有記錄。</p>
   </div>
 
+  <div class="card" id="savecard" hidden>
+    <h2>確認存檔</h2>
+    <div class="count">總計<b id="total2">0</b>個</div>
+    <label class="fld"><span>箱號／品名</span><input type="text" id="box" maxlength="60" autocomplete="off"></label>
+    <label class="fld"><span>盤點人</span><input type="text" id="person" maxlength="30"></label>
+    <label class="chk"><input type="checkbox" id="okchk">我已人工核對，總數正確</label>
+    <button id="save" class="primary big" style="margin-top:10px" disabled>確認存檔</button>
+    <p class="hint" id="savemsg"></p>
+  </div>
+
   <div class="card">
     <h2>結果文字</h2>
     <textarea id="summary" rows="5" readonly></textarea>
@@ -102,6 +118,7 @@ h2{font-size:15px;margin:0 0 8px}
 <script>
 const $ = id => document.getElementById(id);
 const W_MAX = 800;
+const API = 'https://script.google.com/macros/s/AKfycbweGB59NmJt_VKNOlI-mjnnuKEDCdZhV68CrdXuLdjGDs8b62IPDbfMIfLvCC1bn6LZ/exec';
 const work = document.createElement('canvas');
 const wctx = work.getContext('2d', {willReadFrequently:true});
 const cv = $('cv'), ctx = cv.getContext('2d');
@@ -109,7 +126,10 @@ let hasImg = false, markers = [], undoStack = [];
 const ZOOMS = [1, 1.5, 2, 3]; let zi = 0;
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem('bottle_entries') || '[]'); } catch (e) { entries = []; }
-function saveEntries(){ try { localStorage.setItem('bottle_entries', JSON.stringify(entries)); } catch (e) {} }
+function saveEntries(){
+  try { localStorage.setItem('bottle_entries', JSON.stringify(entries)); }
+  catch (e) { try { localStorage.setItem('bottle_entries', JSON.stringify(entries.map(({img, ...r}) => r))); } catch (e2) {} }
+}
 
 const radiusPx = () => parseFloat($('rad').value) / 100 * work.width;
 
@@ -264,7 +284,8 @@ function detect(keepManual){
 $('add').onclick = () => {
   if (!hasImg) return;
   const mult = Math.max(1, parseInt($('mult').value, 10) || 1);
-  entries.push({n: markers.length, mult}); saveEntries();
+  draw();
+  entries.push({n: markers.length, mult, img: cv.toDataURL('image/jpeg', 0.72)}); saveEntries();
   hasImg = false; markers = []; undoStack = []; $('work').hidden = true; renderEntries();
   window.scrollTo({top: 0, behavior: 'smooth'});
 };
@@ -284,7 +305,8 @@ function renderEntries(){
     li.appendChild(b); ul.appendChild(li);
   });
   $('noentry').style.display = entries.length ? 'none' : '';
-  $('total').textContent = total;
+  $('total').textContent = total; $('total2').textContent = total;
+  $('savecard').hidden = !entries.length; $('okchk').checked = false; checkSave();
   $('summary').value = entries.length
     ? entries.map((en, i) => '第' + (i + 1) + '張：' + en.n + ' × ' + en.mult + ' = ' + en.n * en.mult).join('\n') + '\n總計：' + total + ' 個'
     : '';
@@ -293,6 +315,28 @@ $('copy').onclick = async () => {
   const t = $('summary').value; if (!t) return;
   try { await navigator.clipboard.writeText(t); $('copymsg').textContent = '已複製'; }
   catch (e) { $('summary').focus(); $('summary').select(); $('copymsg').textContent = '請長按已選取的文字複製'; }
+};
+/* ---------- 確認存檔（寫入共用 Google 試算表與 Drive） ---------- */
+try { $('person').value = localStorage.getItem('bottle_person') || ''; } catch (e) {}
+function checkSave(){ $('save').disabled = !($('okchk').checked && $('box').value.trim() && $('person').value.trim() && entries.length); }
+['box', 'person'].forEach(id => $(id).addEventListener('input', checkSave));
+$('okchk').addEventListener('change', checkSave);
+function saveMsg(t, cls){ $('savemsg').textContent = t; $('savemsg').className = 'hint ' + (cls || ''); }
+$('save').onclick = async () => {
+  const total = entries.reduce((s, en) => s + en.n * en.mult, 0);
+  const body = {box: $('box').value.trim(), person: $('person').value.trim(), total, entries};
+  try { localStorage.setItem('bottle_person', body.person); } catch (e) {}
+  $('save').disabled = true; saveMsg('存檔中，請稍候…');
+  try {
+    const res = await fetch(API, {method: 'POST', body: JSON.stringify(body)});
+    const r = await res.json();
+    if (!r.ok) throw new Error(r.error || '存檔失敗');
+    entries = []; saveEntries(); $('box').value = ''; renderEntries();
+    saveMsg('已存檔：' + body.box + '，總數 ' + r.total + ' 個，照片 ' + r.photos + ' 張。', 'msg-ok');
+  } catch (e) {
+    saveMsg('存檔失敗：' + (e.message || e) + '。記錄還在，確認網路後再按一次。', 'msg-err');
+    checkSave();
+  }
 };
 renderEntries(); updateCount();
 </script>
